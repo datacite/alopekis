@@ -23,7 +23,8 @@ class OpenSearchClient:
             verify_certs=False,
             ssl_assert_hostname=False,
             ssl_show_warn=False,
-            connection_class=RequestsHttpConnection
+            connection_class=RequestsHttpConnection,
+            timeout=120
         )
         self.query = None
         self.logger = logger
