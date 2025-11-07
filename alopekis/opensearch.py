@@ -25,11 +25,14 @@ class OpenSearchClient:
             ssl_show_warn=False,
             connection_class=RequestsHttpConnection
         )
+        # TODO: Configure a more generous default timeout
         self.query = None
         self.logger = logger
 
-        # Disable the logs about connections to the OpenSearch cluster
+        # Disable the logs about connections to the OpenSearch cluster and urllib3 debug messages
         logging.getLogger("opensearch").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.INFO)
+        #logger.propagate = False
 
     def return_all_results(self):
         """Execute query and return all results as an iterator, using search_after"""
@@ -40,11 +43,13 @@ class OpenSearchClient:
 
         while not query_finished:
             search_after = self.query.to_dict().get("search_after")
-            self.logger.debug(f"Running query with `search_after`: {search_after}")
+            #self.logger.debug(f"Running query with `search_after`: {search_after}")
             #self.logger.debug(f"Query: {self.query.to_dict()}")
             try:
                 response = self.query.execute()
                 if not response.timed_out:
+                    # TODO: Check this actually triggers, Timeout exceptions might be unintentionally caught by the broad `except Exception`
+                    #       block below and therefore counting as a Failure rather than a timeout
                     if len(response.hits) > 0:
                         #if len(response.hits) < 1000:
                             #self.logger.debug(f"LESS THAN 1K - Query returned {len(response.hits)} results")
@@ -54,6 +59,7 @@ class OpenSearchClient:
                         query_finished = True
                 else:
                     timeout_count += 1
+                    self.logger.info(f"Query timed out (count: {timeout_count}): {self.query.to_dict}")
                     if timeout_count > 10:
                         self.logger.error("Too many timeouts, giving up")
                         raise TooManyTimeouts
@@ -75,7 +81,7 @@ class OpenSearchClient:
         s = Search(using=self.opensearch_client, index=OPENSEARCH_INDEX)
         s = s.filter("terms", agency=["DataCite", "datacite"])
         s = s.filter("terms", aasm_state=["findable", "registered"])
-        #s = s.filter("range", updated={"gte": "2024-01-01T00:00:00Z"})
+        #s = s.filter("range", updated={"lte": "2020-01-01T00:00:00Z"})  #TEMP for testing
         s = s.query()  # This adds a simple match_all
         s = s.sort("updated", "uid")
         s = s.extra(track_total_hits=False, size=1000)

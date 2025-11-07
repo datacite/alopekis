@@ -24,28 +24,28 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
     """
     queue_handler = QueueHandler(log_queue)
     logger = logging.getLogger(f"worker-{worker_id}")
+    # logger.propagate = False
     logger.addHandler(queue_handler)
-    #logger.setLevel(logging.INFO)
-    logger.info(f"Worker {worker_id} started")
+    logger.debug(f"Worker {worker_id} started")
 
     while True:
         job = work_queue.get()
         if job is None:
-            logger.info(f"Worker {worker_id} received None, stopping...")
+            logger.debug(f"Worker {worker_id} received None, stopping...")
             break
 
         # Parse the job information
         year = job['year']
         month = job['month']
         expected_count = job['count']
-        logger.info(f"Worker {worker_id} started processing job for {year}-{month} with expected count {expected_count}")
+        logger.debug(f"Worker {worker_id} started processing job for {year}-{month} with expected count {expected_count}")
 
         # Process the job
 
         # Make sure output directory exists
+        output_dir = f"{OUTPUT_PATH}/dois/updated_{year}-{month:02d}"
         try:
-            output_dir = f"{OUTPUT_PATH}/{year}-{month:02d}"
-            if not os.path.exists(output_dir):
+              if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
         except Exception as e:
             logger.error(f"Worker {worker_id} failed to create output directory {output_dir}: {e}")
@@ -60,17 +60,17 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
         current_file_index = 0
 
         # Open the output files
-        json_file_path = f"{OUTPUT_PATH}/{year}-{month:02d}/part_{current_file_index:04d}.jsonl"
-        csv_file_path = f"{OUTPUT_PATH}/{year}-{month:02d}/{year}-{month:02d}.csv"
+        json_file_path = f"{OUTPUT_PATH}/dois/updated_{year}-{month:02d}/part_{current_file_index:04d}.jsonl.gz"
+        csv_file_path = f"{OUTPUT_PATH}/dois/updated_{year}-{month:02d}/{year}-{month:02d}.csv.gz"
         try:
             # Write direct to gzip
-            json_output_file = gzip.open(f"{OUTPUT_PATH}/{year}-{month:02d}/part_{current_file_index:04d}.jsonl.gz", "wt")
+            json_output_file = gzip.open(json_file_path, "wt")
         except Exception as e:
             logger.error(f"Worker {worker_id} failed to open file {json_file_path} for writing: {e}")
             raise FatalWorkerError
 
         try:
-            csv_output_file = open(csv_file_path, "w")
+            csv_output_file = gzip.open(csv_file_path, "wt")
             csv_writer = DictWriter(csv_output_file, fieldnames=["doi", "state", "client_id", "updated"])
             csv_writer.writeheader()
         except Exception as e:
@@ -93,12 +93,12 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
                     json_output_file.flush()
 
                 if results_count % 10000 == 0:
-                    logger.info(f"Worker {worker_id} processed {results_count}/{expected_count} records for {year}-{month}")
+                    logger.debug(f"Worker {worker_id} processed {results_count}/{expected_count} records for {year}-{month}")
                     current_file_index += 1
                     try:
                         # Close the JSONL file and open the next file
                         json_output_file.close()
-                        json_output_file = gzip.open(f"{OUTPUT_PATH}/{year}-{month:02d}/part_{current_file_index:04d}.jsonl.gz", "wt")
+                        json_output_file = gzip.open(json_file_path, "wt")
                     except Exception as e:
                         logger.error(f"Worker {worker_id} failed to open file {json_file_path} for writing: {e}")
                         raise FatalWorkerError
@@ -107,7 +107,7 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
             csv_output_file.close()
             json_output_file.close()
             results_queue.put({"year": year, "month": month, "count": results_count, "status": "final"}, block=True)
-            logger.info(f"Worker {worker_id} finished processing job for {year}-{month} with final count {results_count}")
+            logger.debug(f"Worker {worker_id} finished processing job for {year}-{month} with final count {results_count}")
             work_queue.task_done()
 
         except Exception as e:
