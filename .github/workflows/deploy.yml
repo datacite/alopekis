@@ -1,0 +1,19 @@
+name: Deploy Main to Staging
+on:
+  push:
+    branches:
+      - "main"
+jobs:
+  call_build_and_push:
+    uses: ./.github/workflows/build_and_push_image.yml
+    with:
+      image_name: ${{ github.repository }}
+      image_tag: main
+    secrets: inherit
+  deploy:
+    needs: call_build_and_push
+    uses: ./.github/workflows/update_terraform.yml
+    with:
+      image_tag: main
+      deployment_environment: staging
+    secrets: inherit
