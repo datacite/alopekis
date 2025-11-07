@@ -3,15 +3,14 @@ name: Build and push image
 on:
   workflow_call:
     inputs:
+      image_name:
+        description: The name of the image
+        required: true
+        type: string
       image_tag:
         description: Tag for the image
         required: true
         type: string
-      deployment_environment:
-        description: The terraform target environment
-        required: true
-        type: string
-        default: staging
 
 jobs:
   build-and-push-image:
@@ -36,7 +35,7 @@ jobs:
       - name: Write provenance
         uses: actions/attest-build-provenance@v3
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-name: ghcr.io/${{ inputs.image_name}}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
