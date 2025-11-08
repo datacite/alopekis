@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', "--verbose", action="store_true", help="Increase output verbosity")
-    parser.add_argument('-w', "--workers", type=int, default=None, help="Override worker count")
+    parser.add_argument('-w', "--workers", type=int, default=WORKERS, help="Override worker count")
     parser.add_argument('-l', '--local', action="store_true", help="Generate locally only, don't upload to S3")
     parser.add_argument("--from-date", type=str, default=None, help="Set start date of generation query (YYYY-MM-DD)")
     parser.add_argument("--until-date", type=str, default=None, help="Set end date of generation query (YYYY-MM-DD)")
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     logger.info("Data File Generation started...")
     logger.info(f"Called with arguments: {args}")
 
-    worker_count = args.workers if args.workers else WORKERS
+    worker_count = int(args.workers) if args.workers else int(WORKERS)
 
     # Set up the queues used for handing out jobs and processing results
     work_queue = JoinableQueue()
