@@ -92,6 +92,9 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
                     json_output_file.write(f"{dumps(serialized_record, escape_forward_slashes=False, ensure_ascii=False)}\n")
                     json_output_file.flush()
 
+                if expected_count > 1000000 and results_count % 100000 == 0:
+                    logger.info(f"Worker {worker_id} processed {results_count}/{expected_count} records for {year}-{month}")
+
                 if results_count % 10000 == 0:
                     logger.debug(f"Worker {worker_id} processed {results_count}/{expected_count} records for {year}-{month}")
                     current_file_index += 1
