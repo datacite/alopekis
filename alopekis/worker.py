@@ -31,14 +31,14 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
     while True:
         job = work_queue.get()
         if job is None:
-            logger.debug(f"Worker {worker_id} received None, stopping...")
+            logger.info(f"Worker {worker_id} received None, stopping...")
             break
 
         # Parse the job information
         year = job['year']
         month = job['month']
         expected_count = job['count']
-        logger.debug(f"Worker {worker_id} started processing job for {year}-{month} with expected count {expected_count}")
+        logger.info(f"Worker {worker_id} started processing job for {year}-{month} with expected count {expected_count}")
 
         # Process the job
 
@@ -107,7 +107,7 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
             csv_output_file.close()
             json_output_file.close()
             results_queue.put({"year": year, "month": month, "count": results_count, "status": "final"}, block=True)
-            logger.debug(f"Worker {worker_id} finished processing job for {year}-{month} with final count {results_count}")
+            logger.info(f"Worker {worker_id} finished processing job for {year}-{month} with final count {results_count}")
             work_queue.task_done()
 
         except Exception as e:
