@@ -11,7 +11,7 @@ import threading
 from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD
 from alopekis.opensearch import OpenSearchClient
 from alopekis.s3 import empty_bucket, put_files
-from alopekis.utils import generate_manifest_file
+from alopekis.utils import generate_manifest_file, queue_month
 from alopekis.worker import month_worker
 from time import sleep
 
@@ -113,15 +113,23 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
                         logger.info(f"Regenerating {len(months_to_rerun)} months: {months_to_rerun}")
 
                         for key in months_to_rerun:
-                            del results[key]['final']
-                            del results[key]['diff']
-                            del results[key]['pct']
+                            # del results[key]['final']
+                            # del results[key]['diff']
+                            # del results[key]['pct']
+                            # year, month = key.split('-')
+                            # work_queue.put({
+                            #     'year': int(year),
+                            #     'month': int(month),
+                            #     'count': results[key]['expected']
+                            # })
+                            del results[key]
                             year, month = key.split('-')
-                            work_queue.put({
-                                'year': int(year),
-                                'month': int(month),
-                                'count': results[key]['expected']
-                            })
+                            queue_month(year=int(year),
+                                        month=int(month),
+                                        work_queue=work_queue,
+                                        results_queue=results_queue,
+                                        count=None,  # Force a requery of expected count from OpenSearch
+                                        logger=logger)
                     else:
                         logger.info("No months to rerun, shutting down workers and commencing packaging")
                         sleep(1)  # Necessary to prevent workers closing before the main thread has joined them
@@ -221,17 +229,23 @@ if __name__ == "__main__":
         agg_results = agg_client.query.execute()
         for bucket in agg_results.aggregations.updated.buckets:
             year, month = bucket.key_as_string.split('-')
-            work_queue.put({
-                'year': int(year),
-                'month': int(month),
-                'count': bucket.doc_count
-            })
-            results_queue.put({
-                'year': int(year),
-                'month': int(month),
-                'count': bucket.doc_count,
-                'status': 'expected'
-            })
+            queue_month(year=int(year),
+                        month=int(month),
+                        work_queue=work_queue,
+                        results_queue=results_queue,
+                        count=bucket.doc_count,
+                        logger=logger)
+            # work_queue.put({
+            #     'year': int(year),
+            #     'month': int(month),
+            #     'count': bucket.doc_count
+            # })
+            # results_queue.put({
+            #     'year': int(year),
+            #     'month': int(month),
+            #     'count': bucket.doc_count,
+            #     'status': 'expected'
+            # })
 
         logger.info(f"Expected total count: {agg_results.hits.total.value}")
     except Exception as e:
