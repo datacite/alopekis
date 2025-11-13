@@ -33,10 +33,12 @@ def get_month_count(year: int, month: int, logger=None) -> int:
 
 def queue_month(year: int, month: int, work_queue: Queue, results_queue: Queue, count: int = None, logger=None) -> None:
     """Queue a month to be processed, retrieving the expected count of records if it is not provided"""
+    logger.debug(f"Queueing job for {year}-{month} with expected count: {count}")
     if count:
         count = int(count)
     else:
-        get_month_count(year, month, logger)
+        logger.debug(f"No count for {year}-{month} provided, querying OpenSearch")
+        count = get_month_count(year, month, logger)
 
     work_queue.put({
         'year': int(year),
