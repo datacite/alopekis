@@ -99,6 +99,7 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
                     else:
                         logger.debug(f"Worker {worker_id} processed {results_count}/{expected_count} records for {year}-{month}")
                     current_file_index += 1
+                    json_file_path = f"{OUTPUT_PATH}/dois/updated_{year}-{month:02d}/part_{current_file_index:04d}.jsonl.gz"
                     try:
                         # Close the JSONL file and open the next file
                         json_output_file.close()
