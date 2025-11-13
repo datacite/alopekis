@@ -8,7 +8,7 @@ from queue import Queue
 from datetime import datetime, date #, UTC    # UTC is new in Python 3.13 so this was erroring in prod
 import threading
 
-from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD
+from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD, CIRCUIT_BREAKER_THRESHOLD
 from alopekis.opensearch import OpenSearchClient
 from alopekis.s3 import empty_bucket, put_files
 from alopekis.utils import generate_manifest_file, queue_month
@@ -65,6 +65,7 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
     logger.addHandler(queue_handler)
     logger.setLevel(logging.INFO)
     results = {}
+    circuit_breaker = 0
     while True:
         result = results_queue.get(block=True)
         logger.debug(f"Got result: {result}")
@@ -109,8 +110,10 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
                         logger.info(f"{m} - Expected: {results[m]['expected']} - Final: {results[m]['final']} - Diff: {results[m]['diff']} - Threshold: {results[m]['diff'] > MONTH_THRESHOLD}")
                     months_to_rerun = [key for key in results if results[key]['diff'] > MONTH_THRESHOLD]
 
-                    if len(months_to_rerun) > 0:
+                    if len(months_to_rerun) > 0 and circuit_breaker < CIRCUIT_BREAKER_THRESHOLD:
                         logger.info(f"Regenerating {len(months_to_rerun)} months: {months_to_rerun}")
+                        circuit_breaker += 1
+                        logger.info(f"Increasing circuit breaker count, now {circuit_breaker}/{CIRCUIT_BREAKER_THRESHOLD}")
 
                         for key in months_to_rerun:
                             # del results[key]['final']
@@ -131,7 +134,11 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
                                         count=None,  # Force a requery of expected count from OpenSearch
                                         logger=logger)
                     else:
-                        logger.info("No months to rerun, shutting down workers and commencing packaging")
+                        if circuit_breaker == CIRCUIT_BREAKER_THRESHOLD:
+                            logger.error(f"Regenerated more than circuit breaker threshold of {CIRCUIT_BREAKER_THRESHOLD} - shutting down workers and commencing packaging")
+                            # TODO: Flag this more explicitly somewhere
+                        else:
+                            logger.info("No months to rerun, shutting down workers and commencing packaging")
                         sleep(1)  # Necessary to prevent workers closing before the main thread has joined them
                         for _ in range(worker_count):
                             work_queue.put(None)
