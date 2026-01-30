@@ -212,6 +212,7 @@ def populate_identifiers(record: dict) -> dict:
     record["identifiers"] = [r for r in record["identifiers"] if r.get("identifier", None) not in [record["doi"], record["url"]]]
     return record
 
+
 def populate_alternate_identifiers(record: dict) -> dict:
     """
     Populate the "alternateIdentifiers" field in a record according to the following rules:
@@ -240,7 +241,7 @@ def populate_alternate_identifiers(record: dict) -> dict:
             "alternateIdentifier": r.get("identifier", None),
         }
         for r in record["identifiers"]
-        if r["identifier"] not in [record["doi"], record["url"]]
+        if r.get("identifier", None) not in [record["doi"], record["url"]]
     ]
     return record
 
