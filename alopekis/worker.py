@@ -84,13 +84,19 @@ def month_worker(worker_id: int, work_queue: Queue, results_queue: Queue, log_qu
                 results_count += 1
 
                 # Write everything to the CSV
-                csv_writer.writerow(csv_serialize(result))
+                try:
+                    csv_writer.writerow(csv_serialize(result))
+                except Exception as e:
+                    logger.error(f"Failed to serialize record {result.uid} to CSV: {e}")
 
                 # Only write to JSONL if the record is findable
                 if result.aasm_state == "findable":
-                    serialized_record = json_serialize(result)
-                    json_output_file.write(f"{dumps(serialized_record, escape_forward_slashes=False, ensure_ascii=False)}\n")
-                    json_output_file.flush()
+                    try:
+                        serialized_record = json_serialize(result)
+                        json_output_file.write(f"{dumps(serialized_record, escape_forward_slashes=False, ensure_ascii=False)}\n")
+                        json_output_file.flush()
+                    except Exception as e:
+                        logger.error(f"Failed to serialize record {result.uid} to JSON: {e}")
 
                 if results_count % 10000 == 0:
                     # For long-running months, increase log messages for easier tracking during generation
