@@ -32,21 +32,27 @@ def json_serialize(record: Hit) -> dict:
     record = record.to_dict()
 
     # Extract keys that live outside `attributes`
-    client_id = record.pop("client_id")
-    provider_id = record.pop("provider_id")
-    media_ids = record.pop("media_ids")
-    reference_ids = record.pop("reference_ids")
-    citation_ids = record.pop("citation_ids")
-    part_ids = record.pop("part_ids")
-    part_of_ids = record.pop("part_of_ids")
-    version_ids = record.pop("version_ids")
-    version_of_ids = record.pop("version_of_ids")
+    try:
+        client_id = record.pop("client_id")
+        provider_id = record.pop("provider_id")
+        media_ids = record.pop("media_ids")
+        reference_ids = record.pop("reference_ids")
+        citation_ids = record.pop("citation_ids")
+        part_ids = record.pop("part_ids")
+        part_of_ids = record.pop("part_of_ids")
+        version_ids = record.pop("version_ids")
+        version_of_ids = record.pop("version_of_ids")
+    except KeyError as e:
+        raise KeyError(f"Failed to extract keys from record {record.uid}: {e}")
 
     # Rename keys that have a different name in OpenSearch
-    record["doi"] = record.pop("uid") # Use `uid` because it is lowercased
-    record["publisher"] = record.pop("publisher_obj")
-    record["version"] = record.pop("version_info")
-    record["state"] = record.pop("aasm_state")
+    try:
+        record["doi"] = record.pop("uid") # Use `uid` because it is lowercased
+        record["publisher"] = record.pop("publisher_obj")
+        record["version"] = record.pop("version_info")
+        record["state"] = record.pop("aasm_state")
+    except KeyError as e:
+        raise KeyError(f"Failed to rename keys in record {record.uid}: {e}")
 
     # CamelCase the keys in the record
     record = camelize(record)
@@ -209,7 +215,7 @@ def populate_identifiers(record: dict) -> dict:
         dict: Populated record.
     """
 
-    record["identifiers"] = [r for r in record["identifiers"] if r.get("identifier", None) not in [record["doi"], record["url"]]]
+    record["identifiers"] = [r for r in record["identifiers"] if r.get("identifier", None) not in [record["doi"], record["url"], None]]
     return record
 
 
@@ -241,7 +247,7 @@ def populate_alternate_identifiers(record: dict) -> dict:
             "alternateIdentifier": r.get("identifier", None),
         }
         for r in record["identifiers"]
-        if r.get("identifier", None) not in [record["doi"], record["url"]]
+        if r.get("identifier", None) not in [record["doi"], record["url"], None]
     ]
     return record
 
