@@ -8,6 +8,9 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger("main")
 logger.propagate = False
 
+logging.getLogger("botocore").setLevel(logging.INFO)
+logging.getLogger("boto3").setLevel(logging.INFO)
+logging.getLogger("s3transfer").setLevel(logging.INFO)
 
 def empty_bucket(bucket: str) -> None:
     """Remove all the objects from the specified bucket.
