@@ -2,8 +2,12 @@ import os
 import logging
 from typing import List, Iterator, Iterable
 import boto3
+from botocore.client import BaseClient
+from botocore.config import Config
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from .config import WORKERS
 
 logger = logging.getLogger("main")
 logger.propagate = False
@@ -35,34 +39,68 @@ def put_files(files: Iterable[str], bucket: str, extra_args: dict, root_dir=None
         root_dir (str): The root directory that all filenames are relative to
         
     Returns:
-        List[tuple]: A list of tuples containing (file_path, success, message) for each file
+        List[tuple]: A list of tuples containing (file_path, success) for each file
     """
-    s3_client = boto3.client('s3')
+
+    # Since this is I/O rather than CPU work, the number of workers can be higher
+    workers = WORKERS * 4
+
+    # Create s3 client here for thread safety purposes
+    s3_client = boto3.client('s3', config=Config(max_pool_connections=workers, tcp_keepalive=True))
+
     results = []
-    
-    for filename in files:
-        if root_dir:
-            file_path = os.path.join(root_dir, filename)
+    count = 0
+    progress = 1
+
+    logger.info("Starting parallel upload")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(put_file, s3_client, file, bucket, extra_args, root_dir) for file in files]
+        total = len(futures)
+        logger.info(f"Upload queued for {total} files")
+
+        # Pick a reasonable number at which to report progress based on then number of files to upload
+        if total < 100:
+            progess = 5
+        elif 100 < total < 1000:
+            progress = 50
         else:
-            file_path = filename
-        if not os.path.isfile(file_path):
-            results.append((file_path, False, "File not found"))
-            continue
-            
-        try:
-            s3_client.upload_file(
-                Filename=file_path,
-                Bucket=bucket,
-                Key=filename,
-                ExtraArgs=extra_args,
-                Config=TransferConfig(max_concurrency=32)
-            )
-            results.append((file_path, True, "Successfully uploaded"))
-            logger.debug(f"Uploaded {file_path} to {bucket}/{file_path}")
-            
-        except ClientError as e:
-            error_msg = f"Failed to upload {file_path}: {str(e)}"
-            logger.error(error_msg)
-            results.append((file_path, False, error_msg))
-    
+            progress = 100
+
+
+        for f in as_completed(futures):
+            try:
+                filename, result = f.result()
+                results.append((filename, result))
+                # Only count actually uploaded files
+                if result:
+                    count += 1
+                if count % progress == 0:
+                    logger.info(f"Uploaded {count}/{total} files")
+            except TypeError as e:
+                logger.error(f"{e} - {f}")
+        if count < total:
+            logger.error(f"Some files did not upload succesfully - pool finished with {count}/{total} files uploaded")
+
     return results
+
+def put_file(client: BaseClient, file: str, bucket: str, extra_args: dict, root_dir=None) -> tuple[str, bool]:
+    if root_dir:
+        file_path = os.path.join(root_dir, file)
+    else:
+        file_path = file
+    if not os.path.isfile(file_path):
+        logger.warn(f"File {file_path} does not exist")
+        return file, False
+    try:
+        client.upload_file(
+            Filename=file_path,
+            Bucket=bucket,
+            Key=file,
+            ExtraArgs=extra_args,
+            Config=TransferConfig(use_threads=False)
+        )
+        logger.debug(f"Uploaded {file_path} to {bucket}/{file_path}")
+        return file, True
+    except ClientError as e:
+        logger.error(f"Failed to upload {file_path}: {e}")
+        return file, False
