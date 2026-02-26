@@ -1,5 +1,5 @@
 from humps import camelize
-from opensearch_dsl.response.hit import Hit
+from opensearchpy.helpers.response import Hit
 
 
 def csv_serialize(record: Hit) -> dict:
