@@ -19,5 +19,5 @@ MONTH_THRESHOLD = getenv('MONTH_THRESHOLD', 400)
 CIRCUIT_BREAKER_THRESHOLD = getenv('CIRCUIT_BREAKER_THRESHOLD', 3)
 
 # AWS Settings
-DATAFILE_BUCKET = getenv('DATAFILE_BUCKET', 'datafile-stage')
+DATAFILE_BUCKET = getenv('DATAFILE_BUCKET', 'monthly-datafile.stage.datacite.org')
 LOG_BUCKET = getenv('LOG_BUCKET', 'datafile-logs')
