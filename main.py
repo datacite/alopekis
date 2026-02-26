@@ -182,7 +182,8 @@ if __name__ == "__main__":
         args.until_date = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]}"
 
     # Timestamp for log and CSV filenames
-    file_timestamp = datetime.now(UTC).isoformat(timespec="minutes")
+    # NB: We remove the timezone info after instantiation to prevent the filenames having "+00:00" at the end
+    file_timestamp = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="minutes")
 
 
     # Start the thread that handles logging
