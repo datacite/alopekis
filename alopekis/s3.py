@@ -29,17 +29,17 @@ def empty_bucket(bucket: str) -> None:
     bucket.objects.all().delete()
 
 
-def put_files(files: Iterable[str], bucket: str, extra_args: dict, root_dir=None) -> List[tuple]:
+def put_files(files: Iterable[str], bucket: str, extra_args: dict, root_dir=None) -> List[tuple[str, int | None, str | None, bool]]:
     """Put the specified files in the specified S3 bucket.
     
     Args:
-        files (List[str]): The filenames to be uploaded.
+        files (Iterable[str]): The filenames to be uploaded.
         bucket (str): The target S3 bucket name.
         extra_args (dict): Dictionary of extra arguments to pass to the S3 call.
         root_dir (str): The root directory that all filenames are relative to
         
     Returns:
-        List[tuple]: A list of tuples containing (file_path, success) for each file
+        List[tuple[str, int | None, str | None, bool]]: A list of tuples containing (file_path, file_size, SHA256, success) for each file
     """
 
     # Since this is I/O rather than CPU work, the number of workers can be higher
@@ -69,8 +69,8 @@ def put_files(files: Iterable[str], bucket: str, extra_args: dict, root_dir=None
 
         for f in as_completed(futures):
             try:
-                filename, result = f.result()
-                results.append((filename, result))
+                filename, size, checksum, result = f.result()
+                results.append((filename, size, checksum, result))
                 # Only count actually uploaded files
                 if result:
                     count += 1
@@ -83,24 +83,25 @@ def put_files(files: Iterable[str], bucket: str, extra_args: dict, root_dir=None
 
     return results
 
-def put_file(client: BaseClient, file: str, bucket: str, extra_args: dict, root_dir=None) -> tuple[str, bool]:
+def put_file(client: BaseClient, file: str, bucket: str, extra_args: dict, root_dir=None) -> tuple[str, int | None, str | None, bool]:
     if root_dir:
         file_path = os.path.join(root_dir, file)
     else:
         file_path = file
     if not os.path.isfile(file_path):
         logger.warn(f"File {file_path} does not exist")
-        return file, False
+        return file, None, None, False
     try:
-        client.upload_file(
-            Filename=file_path,
+        length = os.path.getsize(file_path)
+        response = client.put_object(
+            Body=open(file_path, 'rb'),
             Bucket=bucket,
             Key=file,
-            ExtraArgs=extra_args,
-            Config=TransferConfig(use_threads=False)
+            ContentLength=length,
+            **extra_args
         )
         logger.debug(f"Uploaded {file_path} to {bucket}/{file_path}")
-        return file, True
+        return file, length, response["ChecksumSHA256"], True
     except ClientError as e:
         logger.error(f"Failed to upload {file_path}: {e}")
-        return file, False
+        return file, None, None, False

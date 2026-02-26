@@ -46,7 +46,7 @@ def logging_thread(log_queue: Queue, file_timestamp: str, local=False) -> None:
 
     if not local:
         # Upload log file and results CSV to S3
-        put_files(files=[logfile, f"results-{file_timestamp}.csv"], bucket=LOG_BUCKET, extra_args={'ContentType': 'text/plain'})
+        put_files(files=[logfile, f"results-{file_timestamp}.csv"], bucket=LOG_BUCKET, extra_args={'ContentType': 'text/plain', 'ChecksumAlgorithm': 'SHA256'})
 
 
 def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, log_queue: Queue, file_timestamp: str) -> None:
@@ -270,10 +270,6 @@ if __name__ == "__main__":
     results_thread.join()
 
     if work_queued:
-        # Generate the manifest file
-        logger.info("Generating MANIFEST file")
-        generate_manifest_file()
-
         if not args.local:
             # Clear S3 Bucket of old data file
             logger.info(f"Clearing S3 bucket: {DATAFILE_BUCKET}")
@@ -281,8 +277,13 @@ if __name__ == "__main__":
 
             # Upload new data file to S3
             logger.info("Uploading new data file")
-            put_files(files=iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH), bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'application/gzip'}, root_dir=OUTPUT_PATH)
-            put_files(files=['MANIFEST'], bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'text/plain'}, root_dir=OUTPUT_PATH)
+            files = put_files(files=iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH), bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'application/gzip', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
+
+            # Generate the manifest file
+            logger.info("Generating MANIFEST file")
+            generate_manifest_file(files)
+
+            put_files(files=['MANIFEST'], bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'text/plain', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
             logger.info("Data file upload complete")
 
     logger.info(f"Process complete, shutting down log thread{' and uploading logs to S3' if not args.local else ''}")
