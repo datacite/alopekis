@@ -15,7 +15,7 @@ def csv_serialize(record: Hit) -> dict:
         "doi": record.uid,
         "state": record.aasm_state,
         "client_id": record.client_id,
-        "updated": record.updated
+        "updated": record.updated,
     }
 
 
@@ -47,7 +47,7 @@ def json_serialize(record: Hit) -> dict:
 
     # Rename keys that have a different name in OpenSearch
     try:
-        record["doi"] = record.pop("uid") # Use `uid` because it is lowercased
+        record["doi"] = record.pop("uid")  # Use `uid` because it is lowercased
         record["publisher"] = record.pop("publisher_obj")
         record["version"] = record.pop("version_info")
         record["state"] = record.pop("aasm_state")
@@ -76,26 +76,15 @@ def json_serialize(record: Hit) -> dict:
         "type": "dois",
         "attributes": record,
         "relationships": {
-            "client": {
-                "data": {
-                    "id": client_id,
-                    "type": "clients"
-                }
-            },
-            "provider": {
-                "data": {
-                    "id": provider_id,
-                    "type": "providers"
-                }
-            },
+            "client": {"data": {"id": client_id, "type": "clients"}},
+            "provider": {"data": {"id": provider_id, "type": "providers"}},
             "media": {
-                "data": [
-                    {"id": media_id, "type": "dois"} for media_id in media_ids
-                ]
+                "data": [{"id": media_id, "type": "dois"} for media_id in media_ids]
             },
             "references": {
                 "data": [
-                    {"id": reference_id, "type": "dois"} for reference_id in reference_ids
+                    {"id": reference_id, "type": "dois"}
+                    for reference_id in reference_ids
                 ]
             },
             "citations": {
@@ -104,9 +93,7 @@ def json_serialize(record: Hit) -> dict:
                 ]
             },
             "parts": {
-                "data": [
-                    {"id": part_id, "type": "dois"} for part_id in part_ids
-                ]
+                "data": [{"id": part_id, "type": "dois"} for part_id in part_ids]
             },
             "partOf": {
                 "data": [
@@ -120,10 +107,11 @@ def json_serialize(record: Hit) -> dict:
             },
             "versionOf": {
                 "data": [
-                    {"id": version_of_id, "type": "dois"} for version_of_id in version_of_ids
+                    {"id": version_of_id, "type": "dois"}
+                    for version_of_id in version_of_ids
                 ]
-            }
-        }
+            },
+        },
     }
     return serialized_record
 
@@ -137,9 +125,22 @@ def wrap_array_fields(record: dict) -> dict:
     Returns:
         dict: Wrapped record
     """
-    array_fields = ["creators", "contributors", "rightsList", "fundingReferences", "identifiers",
-                    "relatedIdentifiers", "relatedItems", "geoLocations", "dates", "subjects",
-                    "sizes", "titles", "descriptions", "formats"]
+    array_fields = [
+        "creators",
+        "contributors",
+        "rightsList",
+        "fundingReferences",
+        "identifiers",
+        "relatedIdentifiers",
+        "relatedItems",
+        "geoLocations",
+        "dates",
+        "subjects",
+        "sizes",
+        "titles",
+        "descriptions",
+        "formats",
+    ]
 
     for field in array_fields:
         if field in record and not isinstance(record[field], list):
@@ -215,7 +216,11 @@ def populate_identifiers(record: dict) -> dict:
         dict: Populated record.
     """
 
-    record["identifiers"] = [r for r in record["identifiers"] if r.get("identifier", None) not in [record["doi"], record["url"], None]]
+    record["identifiers"] = [
+        r
+        for r in record["identifiers"]
+        if r.get("identifier", None) not in [record["doi"], record["url"], None]
+    ]
     return record
 
 

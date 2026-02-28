@@ -1,18 +1,26 @@
-import logging
 import argparse
 import calendar
+import logging
+import threading
+from datetime import UTC, date, datetime
 from glob import iglob
 from logging.handlers import QueueHandler
-from multiprocessing import Queue, Process, JoinableQueue, set_start_method
-from datetime import datetime, date, UTC
-import threading
+from multiprocessing import JoinableQueue, Process, Queue, set_start_method
+from time import sleep
 
-from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD, CIRCUIT_BREAKER_THRESHOLD
+from alopekis.config import (
+    CIRCUIT_BREAKER_THRESHOLD,
+    DATAFILE_BUCKET,
+    LOG_BUCKET,
+    MONTH_THRESHOLD,
+    OUTPUT_PATH,
+    TOTAL_THRESHOLD,
+    WORKERS,
+)
 from alopekis.opensearch import OpenSearchClient
 from alopekis.s3 import empty_bucket, put_files
 from alopekis.utils import generate_manifest_files, queue_month, update_status
 from alopekis.worker import month_worker
-from time import sleep
 
 
 def logging_thread(log_queue: Queue, file_timestamp: str, local=False) -> None:
@@ -25,13 +33,15 @@ def logging_thread(log_queue: Queue, file_timestamp: str, local=False) -> None:
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
-    logfile = f'{file_timestamp}.log'
+    logfile = f"{file_timestamp}.log"
     fhandler = logging.FileHandler(logfile)
     fhandler.setLevel(logging.DEBUG)
     shandler = logging.StreamHandler()
     shandler.setLevel(logging.INFO)
 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     fhandler.setFormatter(formatter)
     shandler.setFormatter(formatter)
 
@@ -46,10 +56,20 @@ def logging_thread(log_queue: Queue, file_timestamp: str, local=False) -> None:
 
     if not local:
         # Upload log file and results CSV to S3
-        put_files(files=[logfile, f"results-{file_timestamp}.csv"], bucket=LOG_BUCKET, extra_args={'ContentType': 'text/plain', 'ChecksumAlgorithm': 'SHA256'})
+        put_files(
+            files=[logfile, f"results-{file_timestamp}.csv"],
+            bucket=LOG_BUCKET,
+            extra_args={"ContentType": "text/plain", "ChecksumAlgorithm": "SHA256"},
+        )
 
 
-def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, log_queue: Queue, file_timestamp: str) -> None:
+def results_thread(
+    results_queue: Queue,
+    work_queue: Queue,
+    worker_count: int,
+    log_queue: Queue,
+    file_timestamp: str,
+) -> None:
     """Thread that handles results
 
     Args:
@@ -59,7 +79,7 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
         log_queue (Queue): Queue to use for logging.
     """
     queue_handler = QueueHandler(log_queue)
-    logger = logging.getLogger(f"results")
+    logger = logging.getLogger("results")
     logger.propagate = False
     logger.addHandler(queue_handler)
     results = {}
@@ -70,89 +90,131 @@ def results_thread(results_queue: Queue, work_queue: Queue, worker_count: int, l
         if result is None:
             logger.debug("Got None, writing CSV and stopping...")
             # Write results to file
-            with open(f'results-{file_timestamp}.csv', 'w') as f:
-                f.write("year-month,expected,final,difference,percentage difference,registered,findable,total serialised,missing\n")
+            with open(f"results-{file_timestamp}.csv", "w") as f:
+                f.write(
+                    "year-month,expected,final,difference,percentage difference,registered,findable,total serialised,missing\n"
+                )
                 for key, value in results.items():
-                    f.write(f"{key},{value['expected']},{value['final']},{value['diff']},{value['pct']:0.5f},{value['registered']},{value['findable']},{value['rf']},{value['rfdiff']}\n")
+                    f.write(
+                        f"{key},{value['expected']},{value['final']},{value['diff']},{value['pct']:0.5f},{value['registered']},{value['findable']},{value['rf']},{value['rfdiff']}\n"
+                    )
             break
 
-        year = result['year']
-        month = result['month']
-        count = result['count']
-        status = result['status']
+        year = result["year"]
+        month = result["month"]
+        count = result["count"]
+        status = result["status"]
 
         key = f"{year}-{month}"
         if key not in results:
             results[key] = {}
         else:
             if status in results[key]:
-                logger.warning(f"Duplicate status {status} for {key}. Old value: {results[key][status]}, new value: {count}")
+                logger.warning(
+                    f"Duplicate status {status} for {key}. Old value: {results[key][status]}, new value: {count}"
+                )
 
         results[key][status] = count
         if status == "failed":
-            logger.warning(f"Recieved a failed status for {key}. Adding back to work queue with expected count of 0 to force OpenSearch requery.")
+            logger.warning(
+                f"Recieved a failed status for {key}. Adding back to work queue with expected count of 0 to force OpenSearch requery."
+            )
             del results[key]
-            year, month = key.split('-')
-            queue_month(year=int(year),
-                        month=int(month),
-                        work_queue=work_queue,
-                        results_queue=results_queue,
-                        count=None,  # Force a requery of expected count from OpenSearch
-                        logger=logger)
-
+            year, month = key.split("-")
+            queue_month(
+                year=int(year),
+                month=int(month),
+                work_queue=work_queue,
+                results_queue=results_queue,
+                count=None,  # Force a requery of expected count from OpenSearch
+                logger=logger,
+            )
 
         if status == "final":
             # Calculate values for regeneration metrics
-            results[key]['diff'] = results[key]['expected'] - results[key]['final']
-            results[key]['pct'] = ((results[key]['diff'] / results[key]['expected']) * 100) if results[key]['expected'] > 0 else 0
+            results[key]["diff"] = results[key]["expected"] - results[key]["final"]
+            results[key]["pct"] = (
+                ((results[key]["diff"] / results[key]["expected"]) * 100)
+                if results[key]["expected"] > 0
+                else 0
+            )
 
             # Add registered and findable counts + total and difference from final result (if >0 indicates a serialisation error)
-            results[key]['registered'] = result['registered']
-            results[key]['findable'] = result['findable']
-            results[key]['rf'] = result['registered'] + result['findable']
-            results[key]['rfdiff'] = results[key]['final'] - results[key]['rf']
+            results[key]["registered"] = result["registered"]
+            results[key]["findable"] = result["findable"]
+            results[key]["rf"] = result["registered"] + result["findable"]
+            results[key]["rfdiff"] = results[key]["final"] - results[key]["rf"]
 
             # Check if all results are done
             if all(["final" in results[key] for key in results]):
                 logger.info("All results have 'final', analysing!")
                 current_key = date.today().strftime("%Y-%-m")
-                discrepancy = sum(results[key]['diff'] for key in results if key != current_key)
+                discrepancy = sum(
+                    results[key]["diff"] for key in results if key != current_key
+                )
                 logger.info(f"Total result discrepancy: {discrepancy}")
                 if discrepancy > TOTAL_THRESHOLD:
-                    logger.info(f"Discrepancy above threshold, selecting months with a difference of more than {MONTH_THRESHOLD} for regeneration")
-                    months_with_discrepancy = [key for key in results if results[key]['diff'] > 0]
+                    logger.info(
+                        f"Discrepancy above threshold, selecting months with a difference of more than {MONTH_THRESHOLD} for regeneration"
+                    )
+                    months_with_discrepancy = [
+                        key for key in results if results[key]["diff"] > 0
+                    ]
                     logger.info("Discrepancies:")
                     for m in months_with_discrepancy:
-                        logger.info(f"{m} - Expected: {results[m]['expected']} - Final: {results[m]['final']} - Diff: {results[m]['diff']} - Threshold: {results[m]['diff'] > MONTH_THRESHOLD}")
-                    months_to_rerun = [key for key in results if results[key]['diff'] > MONTH_THRESHOLD]
+                        logger.info(
+                            f"{m} - Expected: {results[m]['expected']} - Final: {results[m]['final']} - Diff: {results[m]['diff']} - Threshold: {results[m]['diff'] > MONTH_THRESHOLD}"
+                        )
+                    months_to_rerun = [
+                        key for key in results if results[key]["diff"] > MONTH_THRESHOLD
+                    ]
 
-                    if len(months_to_rerun) > 0 and circuit_breaker < CIRCUIT_BREAKER_THRESHOLD:
-                        logger.info(f"Regenerating {len(months_to_rerun)} months: {months_to_rerun}")
+                    if (
+                        len(months_to_rerun) > 0
+                        and circuit_breaker < CIRCUIT_BREAKER_THRESHOLD
+                    ):
+                        logger.info(
+                            f"Regenerating {len(months_to_rerun)} months: {months_to_rerun}"
+                        )
                         circuit_breaker += 1
-                        logger.info(f"Increasing circuit breaker count, now {circuit_breaker}/{CIRCUIT_BREAKER_THRESHOLD}")
+                        logger.info(
+                            f"Increasing circuit breaker count, now {circuit_breaker}/{CIRCUIT_BREAKER_THRESHOLD}"
+                        )
 
                         for key in months_to_rerun:
                             del results[key]
-                            year, month = key.split('-')
-                            queue_month(year=int(year),
-                                        month=int(month),
-                                        work_queue=work_queue,
-                                        results_queue=results_queue,
-                                        count=None,  # Force a requery of expected count from OpenSearch
-                                        logger=logger)
+                            year, month = key.split("-")
+                            queue_month(
+                                year=int(year),
+                                month=int(month),
+                                work_queue=work_queue,
+                                results_queue=results_queue,
+                                count=None,  # Force a requery of expected count from OpenSearch
+                                logger=logger,
+                            )
                     else:
                         if circuit_breaker == CIRCUIT_BREAKER_THRESHOLD:
-                            logger.error(f"Regenerated more than circuit breaker threshold of {CIRCUIT_BREAKER_THRESHOLD} - shutting down workers and commencing packaging")
+                            logger.error(
+                                f"Regenerated more than circuit breaker threshold of {CIRCUIT_BREAKER_THRESHOLD} - shutting down workers and commencing packaging"
+                            )
                             # TODO: Flag this more explicitly somewhere
                         else:
-                            logger.info("No months to rerun, shutting down workers and commencing packaging")
-                        sleep(1)  # Necessary to prevent workers closing before the main thread has joined them
+                            logger.info(
+                                "No months to rerun, shutting down workers and commencing packaging"
+                            )
+                        sleep(
+                            1
+                        )  # Necessary to prevent workers closing before the main thread has joined them
                         for _ in range(worker_count):
                             work_queue.put(None)
 
                 else:
-                    logger.info("Discrepancy in acceptable range, shutting down workers and commencing packaging")
-                    sleep(1)  # Necessary to prevent workers closing before the main thread has joined them
+                    logger.info(
+                        "Discrepancy in acceptable range, shutting down workers and commencing packaging"
+                    )
+                    sleep(
+                        1
+                    )  # Necessary to prevent workers closing before the main thread has joined them
                     for _ in range(worker_count):
                         work_queue.put(None)
 
@@ -163,12 +225,36 @@ if __name__ == "__main__":
 
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-v', "--verbose", action="store_true", help="Increase output verbosity")
-    parser.add_argument('-w', "--workers", type=int, default=WORKERS, help="Override worker count")
-    parser.add_argument('-l', '--local', action="store_true", help="Generate locally only, don't upload to S3")
-    parser.add_argument("--from-date", type=date.fromisoformat, default=None, help="Set start date of generation query (YYYY-MM-DD)")
-    parser.add_argument("--until-date", type=date.fromisoformat, default=None, help="Set end date of generation query (YYYY-MM-DD)")
-    parser.add_argument("--single", type=str, default=None, help="Shortcut to regenerate an individual month (YYYY-MM)")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Increase output verbosity"
+    )
+    parser.add_argument(
+        "-w", "--workers", type=int, default=WORKERS, help="Override worker count"
+    )
+    parser.add_argument(
+        "-l",
+        "--local",
+        action="store_true",
+        help="Generate locally only, don't upload to S3",
+    )
+    parser.add_argument(
+        "--from-date",
+        type=date.fromisoformat,
+        default=None,
+        help="Set start date of generation query (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--until-date",
+        type=date.fromisoformat,
+        default=None,
+        help="Set end date of generation query (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--single",
+        type=str,
+        default=None,
+        help="Shortcut to regenerate an individual month (YYYY-MM)",
+    )
     args = parser.parse_args()
 
     if args.single:
@@ -183,19 +269,27 @@ if __name__ == "__main__":
 
     # Timestamp for log and CSV filenames
     # NB: We remove the timezone info after instantiation to prevent the filenames having "+00:00" at the end
-    file_timestamp = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="minutes")
-
+    file_timestamp = (
+        datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="minutes")
+    )
 
     # Start the thread that handles logging
     log_queue = Queue()
-    log_thread = threading.Thread(target=logging_thread, args=(log_queue, file_timestamp, args.local,))
+    log_thread = threading.Thread(
+        target=logging_thread,
+        args=(
+            log_queue,
+            file_timestamp,
+            args.local,
+        ),
+    )
     log_thread.start()
 
     # Set up the main logger
     queue_handler = QueueHandler(log_queue)
-    logger = logging.getLogger(f"main")
+    logger = logging.getLogger("main")
     logger.addHandler(queue_handler)
-    #logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    # logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     logger.propagate = False
     logger.info("Data File Generation started...")
     logger.info(f"Called with arguments: {args}")
@@ -205,12 +299,23 @@ if __name__ == "__main__":
     # Set up the queues used for handing out jobs and processing results
     work_queue = JoinableQueue()
     results_queue = JoinableQueue()
-    results_thread = threading.Thread(target=results_thread, args=(results_queue, work_queue, worker_count, log_queue, file_timestamp,))
+    results_thread = threading.Thread(
+        target=results_thread,
+        args=(
+            results_queue,
+            work_queue,
+            worker_count,
+            log_queue,
+            file_timestamp,
+        ),
+    )
     results_thread.start()
 
     workers = []
     for i in range(worker_count):
-        wp = Process(target=month_worker, args=(i, work_queue, results_queue, log_queue))
+        wp = Process(
+            target=month_worker, args=(i, work_queue, results_queue, log_queue)
+        )
         workers.append(wp)
         wp.start()
 
@@ -219,16 +324,31 @@ if __name__ == "__main__":
     agg_client.build_query()
 
     if args.from_date and args.until_date:
-        agg_client.query = agg_client.query.filter("range", updated={"gte": f"{args.from_date}T00:00:00Z",
-                                                                     "lte": f"{args.until_date}T23:59:59Z"})
+        agg_client.query = agg_client.query.filter(
+            "range",
+            updated={
+                "gte": f"{args.from_date}T00:00:00Z",
+                "lte": f"{args.until_date}T23:59:59Z",
+            },
+        )
     elif args.from_date and not args.until_date:
-        agg_client.query = agg_client.query.filter("range", updated={"gte": f"{args.from_date}T00:00:00Z"})
+        agg_client.query = agg_client.query.filter(
+            "range", updated={"gte": f"{args.from_date}T00:00:00Z"}
+        )
 
     elif args.until_date and not args.from_date:
-        agg_client.query = agg_client.query.filter("range", updated={"lte": f"{args.until_date}T23:59:59Z"})
+        agg_client.query = agg_client.query.filter(
+            "range", updated={"lte": f"{args.until_date}T23:59:59Z"}
+        )
 
     agg_client.query = agg_client.query.extra(track_total_hits=True, size=0)
-    agg_client.query.aggs.bucket('updated', 'date_histogram', field='updated', calendar_interval='month', format='yyyy-MM')
+    agg_client.query.aggs.bucket(
+        "updated",
+        "date_histogram",
+        field="updated",
+        calendar_interval="month",
+        format="yyyy-MM",
+    )
 
     circuit_breaker = 0
     work_queued = False
@@ -237,25 +357,30 @@ if __name__ == "__main__":
         try:
             agg_results = agg_client.query.execute()
             for bucket in agg_results.aggregations.updated.buckets:
-                year, month = bucket.key_as_string.split('-')
-                queue_month(year=int(year),
-                            month=int(month),
-                            work_queue=work_queue,
-                            results_queue=results_queue,
-                            count=bucket.doc_count,
-                            logger=logger)
+                year, month = bucket.key_as_string.split("-")
+                queue_month(
+                    year=int(year),
+                    month=int(month),
+                    work_queue=work_queue,
+                    results_queue=results_queue,
+                    count=bucket.doc_count,
+                    logger=logger,
+                )
             logger.info(f"Expected total count: {agg_results.hits.total.value}")
             work_queued = True
         except Exception as e:
             logger.error(f"Error performing initial OpenSearch query: {e}")
             circuit_breaker += 1
-            logger.info(f"Increasing circuit breaker count, now {circuit_breaker}/{CIRCUIT_BREAKER_THRESHOLD}")
-
+            logger.info(
+                f"Increasing circuit breaker count, now {circuit_breaker}/{CIRCUIT_BREAKER_THRESHOLD}"
+            )
 
     if not work_queued:
         # We hit the ciruit breaker - critical error!
         # Shut down workers
-        logger.error("CRITICAL - hit circuit breaker whilst performing inital OpenSearch query - abandoning generation!")
+        logger.error(
+            "CRITICAL - hit circuit breaker whilst performing inital OpenSearch query - abandoning generation!"
+        )
         logger.info("Shutting down workers")
         for _ in range(worker_count):
             work_queue.put(None)
@@ -283,19 +408,34 @@ if __name__ == "__main__":
 
             # Upload new data file to S3
             logger.info("Uploading new data file")
-            files = put_files(files=iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH), bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'application/gzip', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
+            files = put_files(
+                files=iglob("dois/*/*.gz", root_dir=OUTPUT_PATH),
+                bucket=DATAFILE_BUCKET,
+                extra_args={
+                    "ContentType": "application/gzip",
+                    "ChecksumAlgorithm": "SHA256",
+                },
+                root_dir=OUTPUT_PATH,
+            )
 
             # Generate the manifest files
             logger.info("Generating MANIFEST files")
             generate_manifest_files(files)
 
-            put_files(files=['MANIFEST', 'MANIFEST.json'], bucket=DATAFILE_BUCKET, extra_args={'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
+            put_files(
+                files=["MANIFEST", "MANIFEST.json"],
+                bucket=DATAFILE_BUCKET,
+                extra_args={"ChecksumAlgorithm": "SHA256"},
+                root_dir=OUTPUT_PATH,
+            )
             logger.info("Data file upload complete")
 
             # Update status file
             update_status("Complete")
 
-    logger.info(f"Process complete, shutting down log thread{' and uploading logs to S3' if not args.local else ''}")
+    logger.info(
+        f"Process complete, shutting down log thread{' and uploading logs to S3' if not args.local else ''}"
+    )
     # Shut down logging thread
     log_queue.put(None)
     log_thread.join()
