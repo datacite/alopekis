@@ -10,7 +10,7 @@ import threading
 from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD, CIRCUIT_BREAKER_THRESHOLD
 from alopekis.opensearch import OpenSearchClient
 from alopekis.s3 import empty_bucket, put_files
-from alopekis.utils import generate_manifest_files, queue_month
+from alopekis.utils import generate_manifest_files, queue_month, update_status
 from alopekis.worker import month_worker
 from time import sleep
 
@@ -260,6 +260,9 @@ if __name__ == "__main__":
         for _ in range(worker_count):
             work_queue.put(None)
 
+    # Update the status file
+    update_status("In progress")
+
     # Wait for workers to finish
     for wp in workers:
         wp.join()
@@ -275,6 +278,9 @@ if __name__ == "__main__":
             logger.info(f"Clearing S3 bucket: {DATAFILE_BUCKET}")
             empty_bucket(DATAFILE_BUCKET)
 
+            # Update status file
+            update_status("Uploading")
+
             # Upload new data file to S3
             logger.info("Uploading new data file")
             files = put_files(files=iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH), bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'application/gzip', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
@@ -285,6 +291,9 @@ if __name__ == "__main__":
 
             put_files(files=['MANIFEST', 'MANIFEST.json'], bucket=DATAFILE_BUCKET, extra_args={'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
             logger.info("Data file upload complete")
+
+            # Update status file
+            update_status("Complete")
 
     logger.info(f"Process complete, shutting down log thread{' and uploading logs to S3' if not args.local else ''}")
     # Shut down logging thread
