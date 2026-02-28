@@ -47,7 +47,7 @@ def put_files(
     """
 
     # Since this is I/O rather than CPU work, the number of workers can be higher
-    workers = WORKERS * 4
+    workers = int(WORKERS) * 4
 
     # Create s3 client here for thread safety purposes
     s3_client = boto3.client(
