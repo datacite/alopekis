@@ -1,11 +1,12 @@
 import calendar
 from glob import iglob
 from multiprocessing import Queue
-from ujson import dump
+from ujson import dump, dumps
 import os
 from .config import OUTPUT_PATH
 from .opensearch import OpenSearchClient
-
+from .s3 import put_status_file
+from datetime import date, datetime, UTC, timedelta
 
 def generate_manifest_files(files) -> None:
     """Generate plai tand txe JSON listings of the files within the datafile and save as MANIFEST/MANIFEST.json."""
@@ -61,3 +62,13 @@ def queue_month(year: int, month: int, work_queue: Queue, results_queue: Queue, 
         'count': count,
         'status': 'expected'
     })
+
+
+def update_status(status: str) -> None:
+    """~Write status to STATUS.json in the S3 bucket"""
+    status_json = {
+        "month": (date.today() - timedelta(weeks=4)).strftime("%Y-%-m"),
+        "datetime": datetime.now(UTC).isoformat(),
+        "status": status
+    }
+    put_status_file(dumps(status_json, indent=2).encode())

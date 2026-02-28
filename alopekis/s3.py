@@ -7,7 +7,7 @@ from botocore.config import Config
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .config import WORKERS
+from .config import WORKERS, DATAFILE_BUCKET
 
 logger = logging.getLogger("main")
 logger.propagate = False
@@ -105,3 +105,16 @@ def put_file(client: BaseClient, file: str, bucket: str, extra_args: dict, root_
     except ClientError as e:
         logger.error(f"Failed to upload {file_path}: {e}")
         return file, None, None, False
+
+
+def put_status_file(status: bytes) -> None:
+    s3_client = boto3.client('s3')
+    try:
+        s3_client.put_object(
+            Body=status,
+            Bucket=DATAFILE_BUCKET,
+            Key="STATUS.json",
+        )
+        logger.info("Updated STATUS.json")
+    except ClientError as e:
+        logger.error(f"Failed to update STATUS.json: {e}")
