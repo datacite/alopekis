@@ -10,7 +10,7 @@ import threading
 from alopekis.config import WORKERS, DATAFILE_BUCKET, OUTPUT_PATH, LOG_BUCKET, TOTAL_THRESHOLD, MONTH_THRESHOLD, CIRCUIT_BREAKER_THRESHOLD
 from alopekis.opensearch import OpenSearchClient
 from alopekis.s3 import empty_bucket, put_files
-from alopekis.utils import generate_manifest_file, queue_month
+from alopekis.utils import generate_manifest_files, queue_month
 from alopekis.worker import month_worker
 from time import sleep
 
@@ -279,11 +279,11 @@ if __name__ == "__main__":
             logger.info("Uploading new data file")
             files = put_files(files=iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH), bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'application/gzip', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
 
-            # Generate the manifest file
-            logger.info("Generating MANIFEST file")
-            generate_manifest_file(files)
+            # Generate the manifest files
+            logger.info("Generating MANIFEST files")
+            generate_manifest_files(files)
 
-            put_files(files=['MANIFEST'], bucket=DATAFILE_BUCKET, extra_args={'ContentType': 'text/plain', 'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
+            put_files(files=['MANIFEST', 'MANIFEST.json'], bucket=DATAFILE_BUCKET, extra_args={'ChecksumAlgorithm': 'SHA256'}, root_dir=OUTPUT_PATH)
             logger.info("Data file upload complete")
 
     logger.info(f"Process complete, shutting down log thread{' and uploading logs to S3' if not args.local else ''}")

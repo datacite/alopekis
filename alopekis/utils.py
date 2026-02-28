@@ -1,20 +1,26 @@
 import calendar
 from glob import iglob
 from multiprocessing import Queue
+from ujson import dump
 import os
 from .config import OUTPUT_PATH
 from .opensearch import OpenSearchClient
 
 
-def generate_manifest_file(files) -> None:
-    """Generate a listing of the files within the datafile and save as MANIFEST."""
+def generate_manifest_files(files) -> None:
+    """Generate plai tand txe JSON listings of the files within the datafile and save as MANIFEST/MANIFEST.json."""
+    to_write = []
+    for file in files:
+        filename, size, checksum, success = file
+        if success:
+            to_write.append({"filename": filename, "size": size, "sha256": checksum})
+
     with open(f'{OUTPUT_PATH}/MANIFEST', 'w') as manifest_file:
-        for file in files:
-            filename, size, checksum, success = file
-            if success:
-                manifest_file.write(f'{filename} {size} {checksum}\n')
-        # for file in iglob(f'dois/*/*.gz', root_dir=OUTPUT_PATH):
-        #     manifest_file.write(f'{file} {os.path.getsize(os.path.join(OUTPUT_PATH, file))}\n')
+        for entry in to_write:
+            manifest_file.write(f'{entry["filename"]} {entry["size"]} {entry["sha256"]}\n')
+
+    with open(f'{OUTPUT_PATH}/MANIFEST.json', 'w') as json_manifest_file:
+        dump(to_write, json_manifest_file, indent=2, escape_forward_slashes=False)
 
 
 def get_month_count(year: int, month: int, logger=None) -> int:
