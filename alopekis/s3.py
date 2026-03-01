@@ -113,7 +113,7 @@ def put_file(
             ContentLength=length,
             **extra_args,
         )
-        logger.debug(f"Uploaded {file_path} to {bucket}/{file_path}")
+        logger.debug(f"Uploaded {file_path} to {bucket}/{file}")
         return file, length, response["ChecksumSHA256"], True
     except ClientError as e:
         logger.error(f"Failed to upload {file_path}: {e}")
