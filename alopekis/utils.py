@@ -72,7 +72,7 @@ def queue_month(
 def update_status(status: str) -> None:
     """~Write status to STATUS.json in the S3 bucket"""
     status_json = {
-        "month": (date.today() - timedelta(weeks=4)).strftime("%Y-%-m"),
+        "month": (date.today() - timedelta(weeks=4)).strftime("%Y-%m"),
         "datetime": datetime.now(UTC).isoformat(),
         "status": status,
     }
