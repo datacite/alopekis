@@ -107,6 +107,7 @@ def results_thread(
         # Set the job count
         if "jobs" in result:
             job_count = result["jobs"]
+            logger.info(f"Results queue received count of {job_count} jobs")
             continue
 
         year = result["year"]
@@ -156,7 +157,7 @@ def results_thread(
 
             # Check if all results are done
             if all(["final" in results[key] for key in results]) and len(results) == job_count:
-                logger.info("All results have 'final', analysing!")
+                logger.info("All results have 'final', and count of results matches expected amount - analysing!")
                 current_key = date.today().strftime("%Y-%-m")
                 discrepancy = sum(
                     results[key]["diff"] for key in results if key != current_key
