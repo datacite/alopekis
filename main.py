@@ -399,7 +399,8 @@ if __name__ == "__main__":
             work_queue.put(None)
 
     # Update the status file
-    update_status("In progress")
+    if not args.local:
+        update_status("In progress")
 
     # Wait for workers to finish
     for wp in workers:
