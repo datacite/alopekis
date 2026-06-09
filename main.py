@@ -95,9 +95,12 @@ def results_thread(
                     "year-month,expected,final,difference,percentage difference,registered,findable,total serialised,missing\n"
                 )
                 for key, value in results.items():
-                    f.write(
-                        f"{key},{value['expected']},{value['final']},{value['diff']},{value['pct']:0.5f},{value['registered']},{value['findable']},{value['rf']},{value['rfdiff']}\n"
-                    )
+                    try:
+                        f.write(
+                            f"{key},{value['expected']},{value['final']},{value['diff']},{value['pct']:0.5f},{value['registered']},{value['findable']},{value['rf']},{value['rfdiff']}\n"
+                        )
+                    except KeyError:
+                        logger.error(f"Error writing CSV - result record {key} missing some values")
             break
 
         year = result["year"]
