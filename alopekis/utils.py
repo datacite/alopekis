@@ -63,11 +63,10 @@ def queue_month(
         logger.info(f"No count for {year}-{month} provided, querying OpenSearch")
         count = get_month_count(year, month, logger)
 
-    work_queue.put({"year": int(year), "month": int(month), "count": count})
     results_queue.put(
         {"year": int(year), "month": int(month), "count": count, "status": "expected"}
     )
-
+    work_queue.put({"year": int(year), "month": int(month), "count": count})
 
 def update_status(status: str) -> None:
     """~Write status to STATUS.json in the S3 bucket"""
