@@ -84,6 +84,7 @@ def results_thread(
     logger.addHandler(queue_handler)
     results = {}
     circuit_breaker = 0
+    job_count = 0
     while True:
         result = results_queue.get(block=True)
         logger.debug(f"Got result: {result}")
@@ -99,6 +100,11 @@ def results_thread(
                         f"{key},{value['expected']},{value['final']},{value['diff']},{value['pct']:0.5f},{value['registered']},{value['findable']},{value['rf']},{value['rfdiff']}\n"
                     )
             break
+
+        # Set the job count
+        if "jobs" in result:
+            job_count = result["jobs"]
+            continue
 
         year = result["year"]
         month = result["month"]
@@ -146,7 +152,7 @@ def results_thread(
             results[key]["rfdiff"] = results[key]["final"] - results[key]["rf"]
 
             # Check if all results are done
-            if all(["final" in results[key] for key in results]):
+            if all(["final" in results[key] for key in results]) and len(results) == job_count:
                 logger.info("All results have 'final', analysing!")
                 current_key = date.today().strftime("%Y-%-m")
                 discrepancy = sum(
@@ -356,7 +362,10 @@ if __name__ == "__main__":
     while not work_queued and circuit_breaker < CIRCUIT_BREAKER_THRESHOLD:
         try:
             agg_results = agg_client.query.execute()
-            for bucket in agg_results.aggregations.updated.buckets:
+            buckets = agg_results.aggregations.updated.buckets
+            results_queue.put({"jobs": len(buckets)})
+
+            for bucket in buckets:
                 year, month = bucket.key_as_string.split("-")
                 queue_month(
                     year=int(year),
